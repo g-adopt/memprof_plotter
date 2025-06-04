@@ -68,7 +68,7 @@ def main():
         ax.set_ylim(ymin=0.0)
         ax.set_title(d_names[k])
         ax.legend()
-        fig.savefig(f"plots/{d_cat[k]}/{re.sub('[ /]', '', k)}.png")
+        fig.savefig(f"memprof_plots/{d_cat[k]}/{re.sub('[ /]', '', k)}.png")
         plt.close(fig)
 
 
