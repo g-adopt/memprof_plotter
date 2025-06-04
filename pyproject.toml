@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools >= 61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "memprof_plotter"
+version = "0.0.1"
+dependencies = [
+  "matplotlib"
+]
+requires-python = ">=3.10"
+description = "Plotting utility for tsp memory profiling data"
+
+[tool.setuptools.packages.find]
+include = ["memprof_plotter"]
+exclude = ["plot"]
+
+[project.scripts]
+memprof_plotter = "memprof_plotter.plotter:main"
