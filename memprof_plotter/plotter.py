@@ -32,6 +32,9 @@ FROM
 
 
 def main():
+
+    outpath = os.environ.get("MEMPROF_PLOT_DIR","memprof_plots")
+
     d_times = defaultdict(dict)
     d_rss = defaultdict(dict)
     d_cat = {}
@@ -58,7 +61,7 @@ def main():
         conn.close()
 
     for k, v in d_rss.items():
-        os.makedirs(f"plots/{d_cat[k]}", exist_ok=True)
+        os.makedirs(f"{outpath}/{d_cat[k]}", exist_ok=True)
         fig, ax = plt.subplots()
         for runid in sys.argv[1:]:
             if runid in v:
@@ -68,7 +71,7 @@ def main():
         ax.set_ylim(ymin=0.0)
         ax.set_title(d_names[k])
         ax.legend()
-        fig.savefig(f"memprof_plots/{d_cat[k]}/{re.sub('[ /]', '', k)}.png")
+        fig.savefig(f"{outpath}/{d_cat[k]}/{re.sub('[ /]', '', k)}.png")
         plt.close(fig)
 
 
