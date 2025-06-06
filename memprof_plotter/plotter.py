@@ -41,7 +41,11 @@ def main():
     d_names = {}
 
     for runid in sys.argv[1:]:
-        conn = sqlite3.connect(f"{runid}/tsp_db.sqlite3")
+        try:
+            conn = sqlite3.connect(f"{runid}/tsp_db.sqlite3")
+        except sqlite3.OperationalError:
+            ### unable to open database file
+            continue
         cur = conn.cursor()
         cur.execute(get_all_cmds_query)
         for cmd, cat in cur.fetchall():

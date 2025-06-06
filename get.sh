@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-export NRUNS=5
+export NRUNS=10
 export JSON=$( gh run list -R g-adopt/g-adopt -w test.yml -s success -L "${NRUNS}" --json databaseId,number )
 declare -a RUNIDS=( $( jq --jsonargs '.[].databaseId' <<<"${JSON}" ) )
 declare -a RUNNOS=( $( jq --jsonargs '.[].number' <<<"${JSON}") )
