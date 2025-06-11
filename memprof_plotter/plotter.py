@@ -62,14 +62,16 @@ def download_artefact(url: str) -> bytes | None:
     else:
         print("Artefact does not contain required TSP database")
         return None
-    
 
 
-def get_artefacts(nruns: int, workflow: github.Workflow.Workflow, artefact: str) -> dict[int, bytes]:
+def get_artefacts(nruns: int, workflow: github.Workflow.Workflow, artefact: str, filter: list[str]) -> dict[int, bytes]:
     irun = 0
     runs = {}
     for run in workflow.get_runs(status="success"):
-        k = run.run_number
+        if filter:
+            if run.head_branch not in filter:
+                continue
+        k = f"{run.run_number} - {run.head_branch}"
         for gha in run.get_artifacts():
             if gha.name == artefact:
                 artefact_data = download_artefact(gha.archive_download_url)
@@ -83,7 +85,6 @@ def get_artefacts(nruns: int, workflow: github.Workflow.Workflow, artefact: str)
 
 
 def main():
-
     if gh_token == "BAD_KEY":
         raise KeyError("GH_TOKEN must be set in environment")
 
@@ -110,6 +111,14 @@ def main():
     parser.add_argument(
         "-a", "--artefact", required=False, type=str, default="run-log", help="Name of artefact containing memprof data"
     )
+    parser.add_argument(
+        "-f",
+        "--filter",
+        required=False,
+        type=str,
+        default="",
+        help="Comma separated list of branch names to filter runs on",
+    )
 
     ns = parser.parse_args(sys.argv[1:])
 
@@ -118,7 +127,9 @@ def main():
     gh = github.Github(auth=auth)
     repo = gh.get_repo(ns.repo)
 
-    runs = get_artefacts(ns.nruns, repo.get_workflow(ns.workflow), ns.artefact)
+    filter = ns.filter.split(",") if ns.filter else []
+
+    runs = get_artefacts(ns.nruns, repo.get_workflow(ns.workflow), ns.artefact, filter)
 
     d_times = defaultdict(dict)
     d_rss = defaultdict(dict)
