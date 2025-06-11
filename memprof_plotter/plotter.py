@@ -1,16 +1,25 @@
 #!/usr/bin/env python3
 
-import re
+import argparse
+import github
+import github.Workflow
+import matplotlib.pyplot as plt
 import os
+import re
+import requests
 import sqlite3
 import sys
-import matplotlib.pyplot as plt
+import tempfile
+import zipfile
 
 from collections import defaultdict
+from io import BytesIO
 
-get_all_cmds_query = "SELECT command,category FROM jobs"
+gh_token = os.environ.get("GH_TOKEN", "BAD_KEY")
 
-get_mem_query = """
+get_all_cmds_query: str = "SELECT command,category FROM jobs"
+
+get_mem_query: str = """
 SELECT
     command,
     category,
@@ -31,21 +40,101 @@ FROM
 """
 
 
+def download_artefact(url: str) -> bytes | None:
+    """
+    PyGithub does not support retrieving artefacts into buffers, so we have to resort
+    to requests
+    """
+    req = requests.get(
+        url,
+        headers={
+            "Accept": "application/vnd.github+json",
+            "Authorization": f"Bearer {gh_token}",
+            "X-GitHub-Api-Version": "2022-11-28",
+        },
+    )
+    if req.status_code != 200:
+        print(f"Failed to download archive {url}")
+        return None
+    zf = zipfile.ZipFile(BytesIO(req.content))
+    if "tsp_db.sqlite3" in zf.namelist():
+        return zf.read("tsp_db.sqlite3")
+    else:
+        print("Artefact does not contain required TSP database")
+        return None
+    
+
+
+def get_artefacts(nruns: int, workflow: github.Workflow.Workflow, artefact: str) -> dict[int, bytes]:
+    irun = 0
+    runs = {}
+    for run in workflow.get_runs(status="success"):
+        k = run.run_number
+        for gha in run.get_artifacts():
+            if gha.name == artefact:
+                artefact_data = download_artefact(gha.archive_download_url)
+                if artefact_data:
+                    runs[k] = artefact_data
+                    irun += 1
+                break
+        if irun == nruns:
+            break
+    return runs
+
+
 def main():
 
-    outpath = os.environ.get("MEMPROF_PLOT_DIR","memprof_plots")
+    if gh_token == "BAD_KEY":
+        raise KeyError("GH_TOKEN must be set in environment")
+
+    parser = argparse.ArgumentParser(
+        prog="memprof_plotter", description="Plot memprof data from g-adopt github actions artefacts"
+    )
+    parser.add_argument(
+        "-o", "--outdir", required=False, type=str, default="memprof_plots", help="top directory for output plots"
+    )
+    parser.add_argument(
+        "-n", "--nruns", required=False, type=int, default=5, help="Number of successful runs to gather"
+    )
+    parser.add_argument(
+        "-r", "--repo", required=False, type=str, default="g-adopt/g-adopt", help="Repository to gather artefacts from"
+    )
+    parser.add_argument(
+        "-w",
+        "--workflow",
+        required=False,
+        type=str,
+        default="test.yml",
+        help="Name of workflow file containing memprof data",
+    )
+    parser.add_argument(
+        "-a", "--artefact", required=False, type=str, default="run-log", help="Name of artefact containing memprof data"
+    )
+
+    ns = parser.parse_args(sys.argv[1:])
+
+    ### Connect to github
+    auth = github.Auth.Token(gh_token)
+    gh = github.Github(auth=auth)
+    repo = gh.get_repo(ns.repo)
+
+    runs = get_artefacts(ns.nruns, repo.get_workflow(ns.workflow), ns.artefact)
 
     d_times = defaultdict(dict)
     d_rss = defaultdict(dict)
     d_cat = {}
     d_names = {}
 
-    for runid in sys.argv[1:]:
-        try:
-            conn = sqlite3.connect(f"{runid}/tsp_db.sqlite3")
-        except sqlite3.OperationalError:
-            ### unable to open database file
-            continue
+    tmpfile = None
+
+    for runid, run in runs.items():
+        conn = sqlite3.connect(":memory:")
+        if hasattr(conn, "deserialize"):
+            conn.deserialize(run)
+        else:
+            tmpfile = tempfile.NamedTemporaryFile()
+            tmpfile.write(run)
+            conn = sqlite3.connect(tmpfile.name)
         cur = conn.cursor()
         cur.execute(get_all_cmds_query)
         for cmd, cat in cur.fetchall():
@@ -63,11 +152,13 @@ def main():
             d_times[f"{cat}_{cmd}"][runid].append(time)
             d_rss[f"{cat}_{cmd}"][runid].append(rss)
         conn.close()
+        if tmpfile:
+            tmpfile.close()
 
     for k, v in d_rss.items():
-        os.makedirs(f"{outpath}/{d_cat[k]}", exist_ok=True)
+        os.makedirs(f"{ns.outdir}/{d_cat[k]}", exist_ok=True)
         fig, ax = plt.subplots()
-        for runid in sys.argv[1:]:
+        for runid in runs:
             if runid in v:
                 ax.plot(d_times[k][runid], v[runid], label=f"Run {runid}")
         ax.set_xlabel("Time (seconds)")
@@ -75,7 +166,7 @@ def main():
         ax.set_ylim(ymin=0.0)
         ax.set_title(d_names[k])
         ax.legend()
-        fig.savefig(f"{outpath}/{d_cat[k]}/{re.sub('[ /]', '', k)}.png")
+        fig.savefig(f"{ns.outdir}/{d_cat[k]}/{re.sub('[ /]', '', k)}.png")
         plt.close(fig)
 
 
