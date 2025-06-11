@@ -9,7 +9,7 @@ dependencies = [
   "matplotlib",
   "PyGithub"
 ]
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 description = "Plotting utility for tsp memory profiling data"
 
 [tool.setuptools.packages.find]

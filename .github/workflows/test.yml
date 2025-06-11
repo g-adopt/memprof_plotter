@@ -1,0 +1,29 @@
+name: Create memory profiling graphs
+
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install plotter
+        run: |
+          pip3 install .
+      - name: Make plots
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          memprof_plotter
+      - name: Upload plots
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: memprof_plots
+          path: memprof_plots
