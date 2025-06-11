@@ -55,13 +55,13 @@ def download_artefact(url: str) -> bytes | None:
     )
     if req.status_code != 200:
         print(f"Failed to download archive {url}")
-        return
+        return None
     zf = zipfile.ZipFile(BytesIO(req.content))
     if "tsp_db.sqlite3" in zf.namelist():
         return zf.read("tsp_db.sqlite3")
     else:
         print("Artefact does not contain required TSP database")
-        return
+        return None
     
 
 
@@ -132,7 +132,7 @@ def main():
         if hasattr(conn, "deserialize"):
             conn.deserialize(run)
         else:
-            tmpfile = tempfile.TemporaryFile()
+            tmpfile = tempfile.NamedTemporaryFile()
             tmpfile.write(run)
             conn = sqlite3.connect(tmpfile.name)
         cur = conn.cursor()
