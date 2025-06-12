@@ -160,7 +160,6 @@ def main():
     d_names = {}
 
     for runid, zf in runs.items():
-        ##conn = zip_to_sql_conn(zf)
         with Zip_to_sql_conn(zf) as conn:
             cur = conn.cursor()
             cur.execute(get_all_cmds_query)
