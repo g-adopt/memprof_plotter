@@ -40,7 +40,7 @@ FROM
 """
 
 
-def download_artefact(url: str) -> bytes | None:
+def download_artefact(url: str) -> zipfile.ZipFile | None:
     """
     PyGithub does not support retrieving artefacts into buffers, so we have to resort
     to requests
@@ -58,13 +58,15 @@ def download_artefact(url: str) -> bytes | None:
         return None
     zf = zipfile.ZipFile(BytesIO(req.content))
     if "tsp_db.sqlite3" in zf.namelist():
-        return zf.read("tsp_db.sqlite3")
+        return zf
     else:
         print("Artefact does not contain required TSP database")
         return None
 
 
-def get_artefacts(nruns: int, workflow: github.Workflow.Workflow, artefact: str, filter: list[str]) -> dict[int, bytes]:
+def get_artefacts(
+    nruns: int, workflow: github.Workflow.Workflow, artefact: str, filter: list[str]
+) -> dict[str, zipfile.ZipFile]:
     irun = 0
     runs = {}
     for run in workflow.get_runs(status="success"):
@@ -82,6 +84,27 @@ def get_artefacts(nruns: int, workflow: github.Workflow.Workflow, artefact: str,
         if irun == nruns:
             break
     return runs
+
+
+class Zip_to_sql_conn:
+    def __init__(self, zip: zipfile.ZipFile):
+        self.db = zip.read("tsp_db.sqlite3")
+        self.conn = sqlite3.connect(":memory:")
+        self.tmpfile = None
+        if hasattr(self.conn, "deserialize"):
+            self.conn.deserialize(self.db)
+        else:
+            self.tmpfile = tempfile.NamedTemporaryFile()
+            self.tmpfile.write(self.db)
+            self.conn = sqlite3.connect(self.tmpfile.name)
+
+    def __enter__(self) -> sqlite3.Connection:
+        return self.conn
+
+    def __exit__(self, type, value, traceback):
+        self.conn.close()
+        if self.tmpfile:
+            self.tmpfile.close()
 
 
 def main():
@@ -136,35 +159,25 @@ def main():
     d_cat = {}
     d_names = {}
 
-    tmpfile = None
+    for runid, zf in runs.items():
+        ##conn = zip_to_sql_conn(zf)
+        with Zip_to_sql_conn(zf) as conn:
+            cur = conn.cursor()
+            cur.execute(get_all_cmds_query)
+            for cmd, cat in cur.fetchall():
+                d_cat[f"{cat}_{cmd}"] = cat or "other"
+                d_times[f"{cat}_{cmd}"][runid] = []
+                d_rss[f"{cat}_{cmd}"][runid] = []
+                d_names[f"{cat}_{cmd}"] = cmd
 
-    for runid, run in runs.items():
-        conn = sqlite3.connect(":memory:")
-        if hasattr(conn, "deserialize"):
-            conn.deserialize(run)
-        else:
-            tmpfile = tempfile.NamedTemporaryFile()
-            tmpfile.write(run)
-            conn = sqlite3.connect(tmpfile.name)
-        cur = conn.cursor()
-        cur.execute(get_all_cmds_query)
-        for cmd, cat in cur.fetchall():
-            d_cat[f"{cat}_{cmd}"] = cat or "other"
-            d_times[f"{cat}_{cmd}"][runid] = []
-            d_rss[f"{cat}_{cmd}"][runid] = []
-            d_names[f"{cat}_{cmd}"] = cmd
-
-        try:
-            cur.execute(get_mem_query)
-        except sqlite3.OperationalError:
-            ### No such table memprof
-            continue
-        for cmd, cat, time, rss in cur.fetchall():
-            d_times[f"{cat}_{cmd}"][runid].append(time)
-            d_rss[f"{cat}_{cmd}"][runid].append(rss)
-        conn.close()
-        if tmpfile:
-            tmpfile.close()
+            try:
+                cur.execute(get_mem_query)
+            except sqlite3.OperationalError:
+                ### No such table memprof
+                continue
+            for cmd, cat, time, rss in cur.fetchall():
+                d_times[f"{cat}_{cmd}"][runid].append(time)
+                d_rss[f"{cat}_{cmd}"][runid].append(rss)
 
     for k, v in d_rss.items():
         os.makedirs(f"{ns.outdir}/{d_cat[k]}", exist_ok=True)
