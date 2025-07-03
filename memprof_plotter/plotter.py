@@ -3,6 +3,7 @@
 import argparse
 import github
 import github.Workflow
+import github.WorkflowRun
 import matplotlib.pyplot as plt
 import os
 import re
@@ -40,6 +41,18 @@ FROM
 """
 
 
+class Memprof_Run:
+    def __init__(self, run: github.WorkflowRun.WorkflowRun):
+        self.head_branch = run.head_branch
+        self.run_number = run.run_number
+
+    def add_artefact(self, artefact: zipfile.ZipFile):
+        self.artefact = artefact
+
+    def __str__(self) -> str:
+        return f"{self.run_number} - {self.head_branch}"
+
+
 def download_artefact(url: str) -> zipfile.ZipFile | None:
     """
     PyGithub does not support retrieving artefacts into buffers, so we have to resort
@@ -66,22 +79,21 @@ def download_artefact(url: str) -> zipfile.ZipFile | None:
 
 def get_artefacts(
     nruns: int, workflow: github.Workflow.Workflow, artefact: str, filter: list[str]
-) -> dict[str, zipfile.ZipFile]:
-    irun = 0
+) -> dict[int, Memprof_Run]:
     runs = {}
     for run in workflow.get_runs(status="success"):
         if filter:
             if run.head_branch not in filter:
                 continue
-        k = f"{run.run_number} - {run.head_branch}"
+        mpr = Memprof_Run(run)
         for gha in run.get_artifacts():
             if gha.name == artefact:
                 artefact_data = download_artefact(gha.archive_download_url)
                 if artefact_data:
-                    runs[k] = artefact_data
-                    irun += 1
+                    mpr.add_artefact(artefact_data)
+                    runs[run.run_number] = mpr
                 break
-        if irun == nruns:
+        if len(runs) == nruns:
             break
     return runs
 
@@ -105,6 +117,26 @@ class Zip_to_sql_conn:
         self.conn.close()
         if self.tmpfile:
             self.tmpfile.close()
+
+
+def check_memory_anomaly(category: str, test_name: str, rss: dict[int, list[float]], times: dict[int, list[float]]):
+    """Check for unusually high memory usage in the latest test
+
+    For every test with a >60 second runtime, compare the maximum memory usage of the most recent
+    test and issue a warning via github annotation if the memory usage is more than 20% above the
+    average of the n previous runs.
+    """
+    if any([max(tl) <= 60.0 for tl in times.values()]):
+        return
+
+    max_mems = {i: max(rl) for i, rl in rss.items()}
+    latest_run_no = max(max_mems.keys())
+
+    avg_mem = sum([m for i, m in max_mems.items() if i != latest_run_no]) / (len(max_mems) - 1)
+    if max_mems[latest_run_no] > 1.2 * avg_mem:
+        print(
+            f"::warning title=High Memory Usage::Latest run of {category}: {test_name} ({latest_run_no}) has memory usage over 20% higher than the average for this test {max_mems[latest_run_no]:.2f}GB > {avg_mem:.2f}GB"
+        )
 
 
 def main():
@@ -159,8 +191,8 @@ def main():
     d_cat = {}
     d_names = {}
 
-    for runid, zf in runs.items():
-        with Zip_to_sql_conn(zf) as conn:
+    for runid, mpr in runs.items():
+        with Zip_to_sql_conn(mpr.artefact) as conn:
             cur = conn.cursor()
             cur.execute(get_all_cmds_query)
             for cmd, cat in cur.fetchall():
@@ -179,11 +211,12 @@ def main():
                 d_rss[f"{cat}_{cmd}"][runid].append(rss)
 
     for k, v in d_rss.items():
+        check_memory_anomaly(d_cat[k], k, v, d_times[k])
         os.makedirs(f"{ns.outdir}/{d_cat[k]}", exist_ok=True)
         fig, ax = plt.subplots()
         for runid in runs:
             if runid in v:
-                ax.plot(d_times[k][runid], v[runid], label=f"Run {runid}")
+                ax.plot(d_times[k][runid], v[runid], label=f"Run {runs[runid]}")
         ax.set_xlabel("Time (seconds)")
         ax.set_ylabel("Memory usage (GB)")
         ax.set_ylim(ymin=0.0)
