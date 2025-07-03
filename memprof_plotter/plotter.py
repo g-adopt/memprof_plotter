@@ -126,7 +126,10 @@ def check_memory_anomaly(category: str, test_name: str, rss: dict[int, list[floa
     test and issue a warning via github annotation if the memory usage is more than 20% above the
     average of the n previous runs.
     """
-    if any([max(tl) <= 60.0 for tl in times.values()]):
+    if len(rss) == 1:
+        return
+
+    if any([max(tl or [0.0,]) <= 60.0 for tl in times.values()]):
         return
 
     max_mems = {i: max(rl) for i, rl in rss.items()}
