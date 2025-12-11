@@ -38,6 +38,8 @@ FROM
         GROUP BY
             jobid
     ) AS mintime ON memprof.jobid = mintime.jobid
+ORDER BY
+    t ASC
 """
 
 
