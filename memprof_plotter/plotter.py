@@ -143,6 +143,9 @@ def check_memory_anomaly(category: str, test_name: str, rss: dict[int, list[floa
             f"::warning title=High Memory Usage::Latest run of {category}: {test_name} ({latest_run_no}) has memory usage over 20% higher than the average for this test {max_mems[latest_run_no]:.2f}GB > {avg_mem:.2f}GB"
         )
 
+def sanitise_path(instr: str) -> str:
+    return re.sub('[ /:]', '', instr)
+
 
 def main():
     if gh_token == "BAD_KEY":
@@ -227,7 +230,7 @@ def main():
         ax.set_ylim(ymin=0.0)
         ax.set_title(d_names[k])
         ax.legend()
-        fig.savefig(f"{ns.outdir}/{d_cat[k]}/{re.sub('[ /]', '', k)}.png")
+        fig.savefig(f"{ns.outdir}/{sanitise_path(d_cat[k])}/{sanitise_path(k)}.png")
         plt.close(fig)
 
 
