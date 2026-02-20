@@ -220,7 +220,7 @@ def main():
 
     for k, v in d_rss.items():
         check_memory_anomaly(d_cat[k], k, v, d_times[k])
-        os.makedirs(f"{ns.outdir}/{d_cat[k]}", exist_ok=True)
+        os.makedirs(f"{ns.outdir}/{sanitise_path(d_cat[k])}", exist_ok=True)
         fig, ax = plt.subplots()
         for runid in runs:
             if runid in v:
