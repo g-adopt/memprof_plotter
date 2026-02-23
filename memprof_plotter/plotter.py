@@ -13,6 +13,7 @@ import sys
 import tempfile
 import zipfile
 
+from pathlib import Path
 from collections import defaultdict
 from io import BytesIO
 
@@ -146,6 +147,30 @@ def check_memory_anomaly(category: str, test_name: str, rss: dict[int, list[floa
 def sanitise_path(instr: str) -> str:
     return re.sub('[ /:]', '', instr)
 
+def get_category(label: str) -> str | None:
+    """Derive test category from doit name
+
+    If the label starts with 'demo', take name of the next directory as the
+    category. If the label starts with 'tests', take the name of the directory
+    unless the name of the task is the auto-generated 'run' task, in which case
+    the task comes under the 'other' category
+
+    Args:
+        label: label of test to parse
+
+    Returns:
+        Test category
+    """
+    if ':' in label:
+        if label.startswith("demos"):
+            return Path(label).parent.name
+        elif label.startswith("tests"):
+            if (ls := label.split(":"))[-1] == "run":
+                return None
+            else:
+                return Path(":".join(ls[:-1])).name
+    return label
+
 
 def main():
     if gh_token == "BAD_KEY":
@@ -204,7 +229,7 @@ def main():
             cur = conn.cursor()
             cur.execute(get_all_cmds_query)
             for cmd, cat in cur.fetchall():
-                d_cat[f"{cat}_{cmd}"] = cat or "other"
+                d_cat[f"{cat}_{cmd}"] = get_category(cat) or "other"
                 d_times[f"{cat}_{cmd}"][runid] = []
                 d_rss[f"{cat}_{cmd}"][runid] = []
                 d_names[f"{cat}_{cmd}"] = cmd
